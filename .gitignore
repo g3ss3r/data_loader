@@ -1,5 +1,7 @@
 reports/*
+!reports/.gitkeep
 tasks/*
+!tasks/.gitkeep
 .env
 lenv
 .idea
