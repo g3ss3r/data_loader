@@ -1,0 +1,5 @@
+reports/*
+tasks/*
+.env
+lenv
+.idea
