@@ -1,14 +1,17 @@
-import multiprocessing
+import os
+import datetime
 import time
+
+import argparse
+from dotenv import load_dotenv
+
+import multiprocessing
 from multiprocessing import current_process
 from multiprocessing import Process
 from ctypes import c_int
+
 import requests
 from loguru import logger
-import datetime
-import argparse
-import os
-from dotenv import load_dotenv
 
 
 # We need this process because of limitations of queue size
@@ -58,9 +61,10 @@ def process_main(queue, is_queue_empty, reports_folder):
                 continue
 
         entity = queue.get()
-        response = requests.get(url.format(task=entity, limit=limit_default, api_key=api_key))
+        response = requests.get(url.format(entity=entity, limit=limit_default, api_key=api_key))
 
-        message = f"{process.name};{wallet};{response.status_code};{response.elapsed}"
+        # TODO: add possibility to save received data
+        message = f"{process.name};{entity};{response.status_code};{response.elapsed}"
         # Catching 4xx / 5xx
         if response.status_code != 200:
             logger.error(message)
@@ -80,8 +84,9 @@ def main():
     load_dotenv()
 
     # Default params
+    # TODO: add folders to repo
     workers_default = os.environ.get('WORKERS_COUNT')
-    reports_folder = "./reports/"
+    reports_folder = os.environ.get('REPORTS_FOLDER')
 
     # Adjusting arguments parsing
     parser = argparse.ArgumentParser()
