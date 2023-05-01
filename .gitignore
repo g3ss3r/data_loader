@@ -1,0 +1,6 @@
+logs/*.log
+tasks/*.csv
+.env
+.idea
+.ipynb_checkpoints
+lenv
