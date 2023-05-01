@@ -1,7 +1,5 @@
-reports/*
-!reports/
-tasks/*
-!tasks/
+*.log
+*.csv
 .env
 lenv
 .idea

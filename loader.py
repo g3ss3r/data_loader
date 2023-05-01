@@ -36,19 +36,19 @@ def process_feeder(queue, is_queue_empty, data):
 
 
 # Main process requesting data
-def process_main(queue, is_queue_empty, reports_folder):
+def process_main(queue, is_queue_empty, url, logs_folder):
     process = current_process()
     logger.info(f"{process.name} starting ...")
+    logger.info(f"{url}")
 
     # Waiting for feeder
     time.sleep(1)
 
-    file_name = reports_folder + datetime.datetime.now().strftime("%Y%m%d_%H%M%S.log")
+    file_name = logs_folder + datetime.datetime.now().strftime("%Y%m%d_%H%M%S.log")
     logger.add(file_name, enqueue=False, format="{time};{level};{message}")
 
     api_key = os.environ.get('DL_API_KEY')
     limit_default = int(os.environ.get('LIMIT_DEFAULT'))
-    url = os.environ.get('URL_TEST')
     long_response = os.environ.get('LONG_RESPONSE')
 
     while True:
@@ -61,7 +61,7 @@ def process_main(queue, is_queue_empty, reports_folder):
                 continue
 
         entity = queue.get()
-        response = requests.get(url.format(entity=entity, limit=limit_default, api_key=api_key))
+        response = requests.get(url.format(entity=entity, limit=limit_default, api_key=api_key))  # ,
 
         # TODO: add possibility to save received data
         message = f"{process.name};{entity};{response.status_code};{response.elapsed}"
@@ -86,15 +86,29 @@ def main():
     # Default params
     # TODO: add folders to repo
     workers_default = os.environ.get('WORKERS_COUNT')
-    reports_folder = os.environ.get('REPORTS_FOLDER')
+    logs_folder = os.environ.get('LOGS_FOLDER')
 
     # Adjusting arguments parsing
     parser = argparse.ArgumentParser()
+    parser.add_argument('-u', '--url', nargs='?', help="URL template for requests")
     parser.add_argument('-w', '--workers', nargs='?', default=workers_default, help="Workers count")
     parser.add_argument('-f', '--file', nargs="?", help="File with wallets list")
-    parser.add_argument('-r', '--reports', nargs='?', default=reports_folder, help="Reports folder")
+    parser.add_argument('-l', '--logs', nargs='?', default=logs_folder, help="Logs folder")
 
     args = parser.parse_args()
+
+    # Validate input URL alias
+    if args.url is None:
+        logger.error("URL alias must be provided (use -u param )")
+        exit(0)
+
+    url = os.environ.get(args.url)
+    if url is None:
+        logger.error("URL alias is not found in .env, available choices:")
+        for key in os.environ:
+            if "URL_" in key:
+                print(f"- {key}")
+        exit(0)
 
     # Validate input workers count value
     try:
@@ -105,7 +119,6 @@ def main():
         exit(0)
 
     # Checking for wallet list file existance
-
     try:
         if args.file is None:
             raise IOError()
@@ -115,10 +128,10 @@ def main():
         logger.error(f'Can`t open file "{args.file}"')
         exit(0)
 
-    # Checking for reports folder
-    if not os.path.isdir(args.reports):
-        os.mkdir(args.reports)
-        logger.info(f"Creating reports folder {args.reports}")
+    # Checking for logs folder
+    if not os.path.isdir(args.logs):
+        os.mkdir(args.logs)
+        logger.info(f"Creating logs folder {args.logs}")
 
     logger.info("Preparing queue and feeder")
     queue = multiprocessing.Queue()
@@ -135,7 +148,7 @@ def main():
     # Adjusting and starting workers
     logger.info("Creating workers")
     for i in range(workers_count):
-        params = (queue, is_queue_empty, args.reports)
+        params = (queue, is_queue_empty, url, args.logs)
         process = Process(target=process_main, args=params)
         process.name = 'receiver-' + str(i)
         process.start()
