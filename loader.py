@@ -1,81 +1,16 @@
 import os
 import datetime
-import time
-
 import argparse
 from dotenv import load_dotenv
-
 import multiprocessing
-from multiprocessing import current_process
 from multiprocessing import Process
 from ctypes import c_int
-
-import requests
+import psycopg2
+from psycopg2 import OperationalError
 from loguru import logger
 
-
-# We need this process because of limitations of queue size
-def process_feeder(queue, is_queue_empty, data):
-    process = current_process()
-    logger.info(f"{process.name} starting ...")
-
-    batch_size = int(os.environ.get('BATCH_SIZE'))
-
-    while len(data) > 0:
-        if queue.empty():
-            data_range_to = batch_size if len(data) > batch_size else len(data)
-
-            for i in range(0, data_range_to):
-                wallet = data.pop(0).strip()
-                queue.put(wallet)
-
-            logger.info(f"{process.name} -> {data_range_to} items loaded to queue")
-            time.sleep(0.1)
-
-    is_queue_empty = 1
-
-
-# Main process requesting data
-def process_main(queue, is_queue_empty, url, logs_folder):
-    process = current_process()
-    logger.info(f"{process.name} starting ...")
-    logger.info(f"{url}")
-
-    # Waiting for feeder
-    time.sleep(1)
-
-    file_name = logs_folder + datetime.datetime.now().strftime("%Y%m%d_%H%M%S.log")
-    logger.add(file_name, enqueue=False, format="{time};{level};{message}")
-
-    api_key = os.environ.get('DL_API_KEY')
-    limit_default = int(os.environ.get('LIMIT_DEFAULT'))
-    long_response = os.environ.get('LONG_RESPONSE')
-
-    while True:
-        if queue.empty():
-            logger.info(f"{process.name}: queue is empty")
-            if is_queue_empty:
-                break
-            else:
-                time.sleep(0.1)
-                continue
-
-        entity = queue.get()
-        response = requests.get(url.format(entity=entity, limit=limit_default, api_key=api_key))  # ,
-
-        # TODO: add possibility to save received data
-        message = f"{process.name};{entity};{response.status_code};{response.elapsed}"
-        # Catching 4xx / 5xx
-        if response.status_code != 200:
-            logger.error(message)
-        # Catching heavy requests
-        elif response.elapsed > datetime.timedelta(seconds=int(long_response)):
-            logger.warning(message)
-        # Common case
-        else:
-            logger.info(message)
-
-    logger.info(f"{process.name}: queue and feeder is empty, I`m done")
+from lib.feeder import process_feeder
+from lib.worker import process_worker
 
 
 def main():
@@ -83,19 +18,53 @@ def main():
 
     load_dotenv()
 
-    # Default params
-    # TODO: add folders to repo
+    # Load default params from env
     workers_default = os.environ.get('WORKERS_COUNT')
     logs_folder = os.environ.get('LOGS_FOLDER')
 
     # Adjusting arguments parsing
     parser = argparse.ArgumentParser()
-    parser.add_argument('-u', '--url', nargs='?', help="URL template for requests")
+    parser.add_argument('-u', '--url', nargs='?', help="URL template for requests from .env file")
     parser.add_argument('-w', '--workers', nargs='?', default=workers_default, help="Workers count")
-    parser.add_argument('-f', '--file', nargs="?", help="File with wallets list")
-    parser.add_argument('-l', '--logs', nargs='?', default=logs_folder, help="Logs folder")
+    parser.add_argument('-j', '--jobs', nargs="?", help="File with jobs list")
+    parser.add_argument('-d', '--db_table', nargs='?', default=False, help="Table name to store responses in database")
 
     args = parser.parse_args()
+
+    # Check db connection
+    db_config = None
+    con = None
+    if args.db_table is not False:
+        db_config = {
+            "host": os.environ.get("DB_PG_HOST"),
+            "user": os.environ.get("DB_PG_USER"),
+            "password": os.environ.get("DB_PG_PASSWORD"),
+            "port": os.environ.get("DB_PG_PORT"),
+            "dbname": os.environ.get("DB_PG_DATABASE"),
+            "sslmode": os.environ.get("DB_PG_SSLMODE")
+        }
+        try:
+            con = psycopg2.connect(**db_config)
+        except OperationalError as err:
+            logger.error("Connection test error: " + str(err))
+            exit(0)
+
+        con.set_session(autocommit=True)
+
+        # Create log DB
+        query = f"""
+        CREATE TABLE IF NOT EXISTS {args.db_table} (
+            ts timestamp NOT NULL DEFAULT now(),
+            process varchar NOT NULL,
+            entity varchar NOT NULL,
+            code int4 NOT NULL,
+            response_time time NOT NULL,
+            response_content varchar NOT NULL
+        );
+        """
+        cur = con.cursor()
+        cur.execute(query)
+        con.close()
 
     # Validate input URL alias
     if args.url is None:
@@ -120,26 +89,32 @@ def main():
 
     # Checking for wallet list file existance
     try:
-        if args.file is None:
+        if args.jobs is None:
             raise IOError()
 
-        file = open(args.file, 'r')
+        jobs = open(args.jobs, 'r')
     except IOError as e:
-        logger.error(f'Can`t open file "{args.file}"')
+        logger.error(f'Can`t open jobs file "{args.jobs}"')
         exit(0)
 
     # Checking for logs folder
-    if not os.path.isdir(args.logs):
-        os.mkdir(args.logs)
+    if not os.path.isdir(logs_folder):
+        os.mkdir(logs_folder)
         logger.info(f"Creating logs folder {args.logs}")
+
+    logs_filename = logs_folder + datetime.datetime.now().strftime("%Y%m%d_%H%M%S.log")
 
     logger.info("Preparing queue and feeder")
     queue = multiprocessing.Queue()
     processes = []
     is_queue_empty = multiprocessing.Value(c_int, 0)
 
-    data = file.readlines()
-    params = (queue, is_queue_empty, data)
+    data = jobs.readlines()
+    params = (queue,           # Queue for pushing entities to processes
+              is_queue_empty,  # Flag to signalize workers that queue is not reloading but real empty
+              data,            # Data with entities from job file
+              logs_filename)   # Filename for this launch log
+
     process = Process(target=process_feeder, args=params)
     process.name = 'feeder'
     process.start()
@@ -148,8 +123,13 @@ def main():
     # Adjusting and starting workers
     logger.info("Creating workers")
     for i in range(workers_count):
-        params = (queue, is_queue_empty, url, args.logs)
-        process = Process(target=process_main, args=params)
+        params = (queue,
+                  is_queue_empty,
+                  url,
+                  logs_filename,
+                  db_config,
+                  args.db_table)
+        process = Process(target=process_worker, args=params)
         process.name = 'receiver-' + str(i)
         process.start()
         processes.append(process)
