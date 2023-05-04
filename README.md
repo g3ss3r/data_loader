@@ -16,7 +16,7 @@ Allows to request URLs in multiple threads using a template, measure response sp
 
 6. Add job file into ./jobs/ (like sample_job.csv, with each entity in new line)
 
-7. Fill .env file (take a look on **.env.exmple**)
+7. Fill .env file (take a look on **.env.example**)
 - `DB_PG_*` - params for postgress database connection, make sense with `-d` usage
 - `DL_API_KEY` - value that will replace `{api_key}` in the template
 - `BATCH_SIZE` - the number of tasks that will be loaded into the feeder at the same time
