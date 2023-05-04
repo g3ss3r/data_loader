@@ -87,7 +87,7 @@ def main():
         logger.warning(f"Can`t parse Int({args.workers}), using default workers_count = {workers_default}")
         exit(0)
 
-    # Checking for wallet list file existance
+    # Checking for wallet list file existence
     try:
         if args.jobs is None:
             raise IOError()
@@ -123,12 +123,12 @@ def main():
     # Adjusting and starting workers
     logger.info("Creating workers")
     for i in range(workers_count):
-        params = (queue,
-                  is_queue_empty,
-                  url,
-                  logs_filename,
-                  db_config,
-                  args.db_table)
+        params = (queue,            # Queue for receiving entities to processes
+                  is_queue_empty,   # Flag to signalize workers that queue is not reloading but real empty
+                  url,              # URL template for requests
+                  logs_filename,    # File for storing logs
+                  db_config,        # Params for postgress connection, by default is None
+                  args.db_table)    # Table for request data storing, make sense in case -d usage, by default is None
         process = Process(target=process_worker, args=params)
         process.name = 'receiver-' + str(i)
         process.start()
