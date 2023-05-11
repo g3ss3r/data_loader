@@ -30,12 +30,12 @@ Allows to request URLs in multiple threads using a template, measure response sp
   - `{limit}` - will be replaced with `LIMIT_DEFAULT` value
 
 ### Usage
-1. ```loader.py -u URL_TEST -w 3 -j ./jobs/sample_job.csv```
+1. ```python loader.py -u URL_TEST -w 3 -j ./jobs/sample_job.csv```
 - Create 3 workers, 
 - Which will use template `URL_TEST` from the .etm file, 
 - And for each request, `{entity}` in template will be replaced with row from `./jobs/sample_job.csv`.
 
-2. ```loader.py -u URL_TEST -w 3 -j ./jobs/sample_job.csv -d some_report```
+2. ```python loader.py -u URL_TEST -w 3 -j ./jobs/sample_job.csv -d some_report```
 - Same but ...
 - Save results in `some_report` table. If the table does not exist, it will be created.
 
