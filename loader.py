@@ -58,7 +58,7 @@ def main():
             process varchar NOT NULL,
             entity varchar NOT NULL,
             code int4 NOT NULL,
-            response_time time NOT NULL,
+            response_time interval NOT NULL,
             response_content varchar NOT NULL
         );
         """
@@ -100,7 +100,7 @@ def main():
     # Checking for logs folder
     if not os.path.isdir(logs_folder):
         os.mkdir(logs_folder)
-        logger.info(f"Creating logs folder {args.logs}")
+        logger.info(f"Creating logs folder {logs_folder}")
 
     logs_filename = logs_folder + datetime.datetime.now().strftime("%Y%m%d_%H%M%S.log")
 
@@ -109,6 +109,7 @@ def main():
     processes = []
     is_queue_empty = multiprocessing.Value(c_int, 0)
 
+    # TODO: here is better to use readline in feeder instead readlines to avoid memory issues
     data = jobs.readlines()
     params = (queue,           # Queue for pushing entities to processes
               is_queue_empty,  # Flag to signalize workers that queue is not reloading but real empty
